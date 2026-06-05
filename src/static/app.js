@@ -3,6 +3,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const notificationList = document.getElementById("notification-list");
+  const notificationCount = document.getElementById("notification-count");
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -12,6 +14,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+
+      // Clear previous dropdown options and preserve placeholder
+      activitySelect.innerHTML = '<option value="">-- Select an activity --</option>';
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -91,6 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Refresh activities list to show updated participants
         fetchActivities();
+        fetchNotifications();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
@@ -107,6 +113,75 @@ document.addEventListener("DOMContentLoaded", () => {
       messageDiv.className = "error";
       messageDiv.classList.remove("hidden");
       console.error("Error unregistering:", error);
+    }
+  }
+
+  async function fetchNotifications() {
+    try {
+      const response = await fetch("/notifications");
+      const notifications = await response.json();
+      renderNotifications(notifications);
+    } catch (error) {
+      notificationList.innerHTML = "<p>Failed to load notifications.</p>";
+      notificationCount.classList.add("hidden");
+      console.error("Error fetching notifications:", error);
+    }
+  }
+
+  function renderNotifications(notifications) {
+    if (!Array.isArray(notifications) || notifications.length === 0) {
+      notificationList.innerHTML = "<p>No notifications yet.</p>";
+      notificationCount.classList.add("hidden");
+      return;
+    }
+
+    const unreadCount = notifications.filter((note) => !note.read).length;
+    notificationCount.textContent = `${unreadCount} new`;
+    notificationCount.classList.toggle("hidden", unreadCount === 0);
+
+    notificationList.innerHTML = notifications
+      .map(
+        (notification) =>
+          `<div class="notification-item ${notification.read ? "read" : "unread"}">
+            <div>
+              <p>${notification.message}</p>
+              <span class="notification-meta">${new Date(notification.timestamp).toLocaleString()}</span>
+            </div>
+            ${notification.read ? "" : `<button class="mark-read-btn" data-id="${notification.id}">Mark read</button>`}
+          </div>`
+      )
+      .join("");
+
+    document.querySelectorAll(".mark-read-btn").forEach((button) => {
+      button.addEventListener("click", handleMarkRead);
+    });
+  }
+
+  async function handleMarkRead(event) {
+    const button = event.target;
+    const notificationId = button.getAttribute("data-id");
+
+    try {
+      const response = await fetch(`/notifications/${notificationId}/read`, {
+        method: "PATCH",
+      });
+
+      if (response.ok) {
+        fetchNotifications();
+      } else {
+        const result = await response.json();
+        messageDiv.textContent = result.detail || "Failed to update notification.";
+        messageDiv.className = "error";
+        messageDiv.classList.remove("hidden");
+        setTimeout(() => {
+          messageDiv.classList.add("hidden");
+        }, 5000);
+      }
+    } catch (error) {
+      messageDiv.textContent = "Failed to update notification. Please try again.";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+      console.error("Error marking notification read:", error);
     }
   }
 
@@ -136,6 +211,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Refresh activities list to show updated participants
         fetchActivities();
+        fetchNotifications();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
@@ -157,4 +233,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initialize app
   fetchActivities();
+  fetchNotifications();
 });

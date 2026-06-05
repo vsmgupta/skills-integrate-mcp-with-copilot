@@ -8,7 +8,9 @@ for extracurricular activities at Mergington High School.
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
@@ -18,6 +20,44 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+# Notification persistence
+notifications_file = Path(__file__).parent / "notifications.json"
+notifications = []
+
+
+def save_notifications():
+    notifications_file.write_text(json.dumps(notifications, indent=2))
+
+
+def load_notifications():
+    if notifications_file.exists():
+        try:
+            data = json.loads(notifications_file.read_text())
+            if isinstance(data, list):
+                notifications.clear()
+                notifications.extend(data)
+        except ValueError:
+            notifications.clear()
+    else:
+        notifications.clear()
+
+
+def create_notification(message: str, notification_type: str = "info"):
+    notification_id = max((note["id"] for note in notifications), default=0) + 1
+    notification = {
+        "id": notification_id,
+        "message": message,
+        "type": notification_type,
+        "read": False,
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+    notifications.insert(0, notification)
+    save_notifications()
+    return notification
+
+
+load_notifications()
 
 # In-memory activity database
 activities = {
@@ -88,6 +128,21 @@ def get_activities():
     return activities
 
 
+@app.get("/notifications")
+def get_notifications():
+    return notifications
+
+
+@app.patch("/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: int):
+    for notification in notifications:
+        if notification["id"] == notification_id:
+            notification["read"] = True
+            save_notifications()
+            return notification
+    raise HTTPException(status_code=404, detail="Notification not found")
+
+
 @app.post("/activities/{activity_name}/signup")
 def signup_for_activity(activity_name: str, email: str):
     """Sign up a student for an activity"""
@@ -107,6 +162,7 @@ def signup_for_activity(activity_name: str, email: str):
 
     # Add student
     activity["participants"].append(email)
+    create_notification(f"{email} signed up for {activity_name}.")
     return {"message": f"Signed up {email} for {activity_name}"}
 
 
@@ -129,4 +185,5 @@ def unregister_from_activity(activity_name: str, email: str):
 
     # Remove student
     activity["participants"].remove(email)
+    create_notification(f"{email} unregistered from {activity_name}.")
     return {"message": f"Unregistered {email} from {activity_name}"}
